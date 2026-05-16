@@ -1,0 +1,8 @@
+{
+  "name": "VERBA",
+  "description": "VERBA is an ultra-premium daily English vocabulary companion optimized for high-performance linguistic growth. Featuring a mobile-first interface, spaced repetition mastery, and smart semantic flow.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
