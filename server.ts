@@ -12,7 +12,7 @@ const PORT = 3000;
 let aiInstance: GoogleGenAI | null = null;
 
 let lastQuotaErrorTime = 0;
-const QUOTA_COOLDOWN = 15 * 60 * 1000; // 15 minutes cooldown after quota exhausted
+const QUOTA_COOLDOWN = 30 * 1000; // 30 seconds cooldown after quota exhausted (was 15m)
 
 async function callAIWithRetry<T>(
   apiCall: () => Promise<T>,
@@ -32,9 +32,25 @@ async function callAIWithRetry<T>(
   try {
     return await apiCall();
   } catch (error: any) {
-    const errorMsg = error?.message || error?.toString() || "Unknown error";
-    const status = error?.status || "N/A";
-    const isQuotaError = error?.status === 429 || errorMsg.includes("429") || errorMsg.includes("RESOURCE_EXHAUSTED");
+    let errorMsg = error?.message || error?.toString() || "Unknown error";
+    let status = error?.status || (error?.code ? Number(error.code) : "N/A");
+    
+    // Deeper inspection for stringified JSON errors
+    if (typeof errorMsg === 'string' && errorMsg.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(errorMsg);
+        if (parsed.error) {
+          status = parsed.error.code || status;
+          errorMsg = parsed.error.message || errorMsg;
+        }
+      } catch (e) {}
+    }
+
+    const isQuotaError = status === 429 || 
+                         errorMsg.includes("RESOURCE_EXHAUSTED") || 
+                         errorMsg.includes("quota exceeded") ||
+                         errorMsg.includes("rate limit") ||
+                         errorMsg.includes("429");
     
     if (isQuotaError) {
       lastQuotaErrorTime = Date.now();
@@ -47,7 +63,7 @@ async function callAIWithRetry<T>(
     }
     
     if (isQuotaError) {
-      console.info(`[${timestamp()}] [${context}] Quota exhausted. API calls suspended for 15m. Using fallbacks.`);
+      console.info(`[${timestamp()}] [${context}] Quota exhausted. API calls suspended for 30s. Using fallback policy.`);
     } else {
       console.error(`[${timestamp()}] [${context}] [API_ERROR] Permanent failure (Status: ${status}). Error: ${errorMsg}`);
     }
@@ -902,20 +918,30 @@ async function generateContentWithRetry(genre: string, dateStr: string): Promise
   }, FALLBACK_CONTENT[genre] || FALLBACK_CONTENT["Science"], 1, 5000, `DailyContent:${genre}`);
 }
 
-async function generateChatReplyWithRetry(contents: any[], term = "General"): Promise<any> {
+async function generateChatReplyWithRetry(contents: any[], systemInstruction: string, term = "General"): Promise<any> {
   const ai = getAI();
   if (!ai) {
     throw new Error("AI Engine not initialized. API Key likely missing.");
   }
 
   return await callAIWithRetry(async () => {
-    const modelToUse = "gemini-3-flash-preview";
+    const modelToUse = "gemini-3-flash-preview"; 
     const response = await ai.models.generateContent({
       model: modelToUse,
       contents: contents,
+      config: {
+        systemInstruction,
+        temperature: 0.7,
+      }
     });
+    
+    if (!response.text) {
+      console.warn(`[Chat:${term}] Empty response from model.`);
+      return "I'm sorry, I couldn't generate a response. Please try rephrasing your message.";
+    }
+
     return response.text;
-  }, "I'm sorry, I'm currently experiencing some technical difficulties. Please try chatting again in a moment.", 1, 5000, `Chat:${term}`);
+  }, "The AI service is currently unavailable or over capacity. Please try again in 30 seconds. If this persists, you may need to select a billing-enabled API key in Settings.", 1, 3000, `Chat:${term}`);
 }
 
 app.post("/api/chat", async (req, res) => {
@@ -947,13 +973,11 @@ ${masteryInstruction}
 - If answering questions about the term/concept/idiom "${term}"${masteryContext}${genreContext}, provide thorough educational insights, historical/linguistic nuances, examples, and ensure the format matches the user's requested structure.`;
 
     const contents = [
-      { role: "user", parts: [{ text: systemInstruction }] },
-      { role: "model", parts: [{ text: "Understood, I'm ready to help answer any questions about the term." }] },
       ...formattedHistory,
       { role: "user", parts: [{ text: message }] }
     ];
 
-    const reply = await generateChatReplyWithRetry(contents, term);
+    const reply = await generateChatReplyWithRetry(contents, systemInstruction, term);
 
     res.json({ reply });
   } catch (error: any) {
@@ -1002,10 +1026,12 @@ app.post("/api/troubleshoot", async (req, res) => {
           }
         }
       });
-      return JSON.parse(response.text);
+      
+      const cleanText = response.text?.replace(/```json/g, "").replace(/```/g, "").trim() || "{}";
+      return JSON.parse(cleanText);
     }, {
-      summary: "I apologize, I'm currently unable to access the diagnostic system due to high traffic.",
-      steps: ["Please wait a moment and try again."],
+      summary: "I apologize, I'm currently unable to access the diagnostic system due to high traffic or quota limits.",
+      steps: ["Please wait a moment and try again.", "Check your internet connection.", "Try selecting a new billing-enabled API key in Settings if the problem persists."],
       automatedFixAvailable: false,
       automatedFixAction: null
     }, 1, 5000, "Troubleshoot");

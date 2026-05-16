@@ -109,7 +109,39 @@ export function TroubleshooterChatBot({ onClose }: { onClose: () => void }) {
               </div>
             );
           })}
-          {isLoading && <div className="p-3 bg-white/5 rounded-2xl self-start flex gap-2 text-olive"><Loader2 className="animate-spin w-4 h-4" /> VDE-1 is analyzing...</div>}
+          {isLoading && (
+            <motion.div 
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="p-4 rounded-2xl bg-white/5 border border-olive/20 self-start flex flex-col gap-3 max-w-[90%] relative overflow-hidden"
+            >
+              {/* Scanline/Shimmer */}
+              <motion.div 
+                initial={{ y: '-100%' }}
+                animate={{ y: '200%' }}
+                transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+                className="absolute inset-0 h-10 w-full bg-olive/5 blur-xl pointer-events-none"
+              />
+
+              <div className="flex items-center gap-2 text-olive font-mono text-xs">
+                <Loader2 className="animate-spin w-3 h-3" />
+                <span className="animate-pulse">VDE-1 RUNNING DIAGNOSTIC_CORE...</span>
+              </div>
+              
+              <div className="h-0.5 w-full bg-olive/10 rounded-full overflow-hidden">
+                <motion.div 
+                  initial={{ width: "0%" }}
+                  animate={{ width: ["0%", "30%", "60%", "90%"] }}
+                  transition={{ 
+                    repeat: Infinity, 
+                    duration: 5, 
+                    times: [0, 0.3, 0.7, 1]
+                  }}
+                  className="h-full bg-olive shadow-[0_0_10px_#86a789]"
+                />
+              </div>
+            </motion.div>
+          )}
           <div ref={messagesEndRef} />
         </div>
 
